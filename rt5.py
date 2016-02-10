@@ -38,6 +38,9 @@ def parse_file_list(params):
         for filename in os.listdir():
             thisdir = os.path.dirname(os.path.abspath(__file__))
             return [f for f in listdir(thisdir) if f != "rt5.py" and isfile(join(thisdir, f))]
+    else:
+        with open(params[KEY_FILE_LIST]) as flist:
+            return [file[:-1] for file in flist]
 
 
 def parse_param(param):
@@ -64,7 +67,8 @@ def concat(params):
 
     out_filename = params[KEY_OUTPUT_NAME] if KEY_OUTPUT_NAME in params.keys() else DEFAULT_OUTPUT_NAME
 
-    file_list = parse_file_list(params);
+    file_list = parse_file_list(params)
+
     try:
 
         ofile = open(out_filename, 'wb+')
@@ -74,16 +78,29 @@ def concat(params):
         ofile.write(len(md5).to_bytes(INT_LENGTH, 'big'))
         ofile.write(bytearray(md5))
 
+        ofile.write(len(file_list).to_bytes(INT_LENGTH, 'big'))
+
         for filename in file_list:
-            print(filename)
+
             try:
                 file = open(filename, 'rb+')
                 file_statistics = os.stat(filename)
 
-                head = struct.pack('%ds' % (INT_LENGTH * 2 + len(filename)),
-                                   bytes(("%d%s%d" % (len(filename), filename, file_statistics.st_size)).encode()))
+                ofile.write(len(filename).to_bytes(INT_LENGTH, 'big'))
+                ofile.write(bytes(filename.encode()))
+                ofile.write(file_statistics.st_size.to_bytes(INT_LENGTH, 'big'))
 
-                ofile.write(head)
+
+
+                with open(filename, 'rb+') as file_2_copy:
+                    size = file_statistics.st_size
+                    buf_size = 2048
+
+                    while size > 0:
+                        read_size = buf_size if size > buf_size else size
+                        ofile.write(file_2_copy.read(read_size))
+                        size -= read_size
+
 
             except Exception as e:
 
@@ -104,9 +121,8 @@ def concat(params):
 
 
 def get_file_data(file):
-
     name_size = struct.unpack('>I', file.read(INT_LENGTH))[0]
-    filename = struct.unpack('%ds' % name_size, file.read(name_size))[0]
+    filename = struct.unpack('%ds' % name_size, file.read(name_size))[0].decode('utf-8')
 
     filesize = struct.unpack('>I', file.read(INT_LENGTH))[0]
 
@@ -133,14 +149,32 @@ def scatter(params):
             print("wrong password")
             return 4
 
-        cur_filename, cur_filesize = get_file_data(ifile)
+        buf = ifile.read(INT_LENGTH)
+        files_amount = struct.unpack('>L', buf)[0]
 
-        print("name: %s, size: %d", cur_filename, cur_filesize)
+        containing_dir = os.path.join(os.getcwd(), params[KEY_OUTPUT_NAME] if KEY_OUTPUT_NAME in params.keys() else "")
+
+        for x in range(0, files_amount):
+            cur_filename, cur_filesize = get_file_data(ifile)
+
+            if not os.path.exists(containing_dir):
+                os.makedirs(containing_dir)
+
+            ofile = open(os.path.join(containing_dir, cur_filename), "wb+")
+
+            while cur_filesize > 0:
+                buf_size = 2048
+                read_size = buf_size if cur_filesize > buf_size else cur_filesize
+                ofile.write(ifile.read(read_size))
+                cur_filesize -= buf_size
+
+            ofile.close()
 
         ifile.close()
 
     except Exception as e:
         print("Error while reading: " + e.strerror)
+        err_code = 3
     finally:
         ifile.close()
 
