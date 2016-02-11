@@ -17,6 +17,7 @@ INT_LENGTH = 4
 
 KEY_PASSWORD = "-p"
 
+KEY_HELP_OPERATION = "-h"
 KEY_CONCAT_OPERATION = "-c"
 KEY_SCATTER_OPERATION = "-s"
 
@@ -56,6 +57,8 @@ def parse_param(param):
         return KEY_SCATTER_OPERATION, "true"
     elif param.startswith(KEY_INPUT_FILE_NAME):
         return KEY_INPUT_FILE_NAME, param[2:]
+    elif param.startswith(KEY_HELP_OPERATION):
+        return KEY_HELP_OPERATION, "true"
 
     return None
 
@@ -181,6 +184,26 @@ def scatter(params):
     return err_code
 
 
+def help():
+    print(""" Hider v0.0b
+    Disclaimer: Developer doesn't take any responsibility for harm that this script may bring to your PC.
+    This scrip does no guarantee the high level of information security or data compression.
+
+    Script parameters:
+
+        -p - password (key param)
+
+        -c - concat : operation mode (key param) concatenate files that enlisted in passing file
+        -s - scatter : operation mode (key param) unzip file
+
+        -l - list of files: list of files you want to concatenate used with -c operation mode, otherwise ignored.
+        -o - output name: specify output filename if used with -c operation mode, or drop folder if you want to specify
+        one
+
+        -f - input filename: specify archive filename, if you don't default filename is 'arch.tr5'
+    """)
+
+
 def main():
     params = {}
 
@@ -193,14 +216,19 @@ def main():
 
         params[pair[0]] = pair[1]
 
-    if KEY_PASSWORD not in params.keys():
-        print("You didn't say magic word")
-        return 2
-
     try:
 
         is_concat = KEY_CONCAT_OPERATION in params.keys()
         is_scatter = KEY_SCATTER_OPERATION in params.keys()
+        show_help = KEY_HELP_OPERATION in params.keys()
+
+        if show_help:
+            help()
+            return 0
+
+        if KEY_PASSWORD not in params.keys():
+            print("You didn't say magic word")
+            return 2
 
         if (is_concat and is_scatter) or (not is_concat and not is_scatter):
             print("I don't know what to do")
@@ -210,6 +238,8 @@ def main():
             return concat(params)
         elif is_scatter:
             return scatter(params)
+
+
 
     except Exception as e:
         print("error while merging: " + e.strerror)
