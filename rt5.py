@@ -6,18 +6,27 @@ import hashlib
 from os import listdir
 from os.path import isfile, join
 
+# -mconcat -oout -idir -ppasword
+
 # -m / -s : operation mode [merge / scatter] (keyparam)
 # -o : output (default:arch.tr5)
 # -p : password (keyparam)
 # -l : filelist (default:disdir)
+import cifer
 
-DEFAULT_OUTPUT_NAME = "arch.tr5"
+DEFAULT_ARCHIVE_NAME = "arch.tr5"
 
 INT_LENGTH = 4
 
 KEY_PASSWORD = "-p"
 
-KEY_HELP_OPERATION = "-h"
+KEY_MODE = "-m"
+KEY_OUT_NAME = "-o"
+KEY_INPUT_NAME = "-i"
+
+KEY_HELP_ACTION = "-h"
+KEY_VERSION = "-v"
+
 KEY_CONCAT_OPERATION = "-c"
 KEY_SCATTER_OPERATION = "-s"
 
@@ -44,23 +53,27 @@ def parse_file_list(params):
             return [file[:-1] for file in flist]
 
 
-def parse_param(param):
-    if param.startswith(KEY_FILE_LIST):
-        return KEY_FILE_LIST, param[2:]
-    elif param.startswith(KEY_PASSWORD):
-        return KEY_PASSWORD, param[2:]
-    elif param.startswith(KEY_OUTPUT_NAME):
-        return KEY_OUTPUT_NAME, param[2:]
-    elif param.startswith(KEY_CONCAT_OPERATION):
-        return KEY_CONCAT_OPERATION, "true"
-    elif param.startswith(KEY_SCATTER_OPERATION):
-        return KEY_SCATTER_OPERATION, "true"
-    elif param.startswith(KEY_INPUT_FILE_NAME):
-        return KEY_INPUT_FILE_NAME, param[2:]
-    elif param.startswith(KEY_HELP_OPERATION):
-        return KEY_HELP_OPERATION, "true"
+def extract_param(param_key):
+    for param in sys.argv:
+        if param.startswith(param_key):
+            return param[2:]
 
     return None
+
+
+def parse_params():
+    operation = extract_param(KEY_MODE)
+    if operation is None:
+        operation = "help" if extract_param(KEY_HELP_ACTION) is not None else None
+
+    if operation is None:
+        operation = "version" if extract_param(KEY_VERSION) is not None else None
+
+    password = extract_param(KEY_PASSWORD)
+    input_filename = extract_param(KEY_INPUT_NAME)
+    output_filename = extract_param(KEY_OUT_NAME)
+
+    return operation, password, input_filename, output_filename
 
 
 def concat(params):
@@ -68,7 +81,7 @@ def concat(params):
 
     md5 = get_md5(params[KEY_PASSWORD].encode())
 
-    out_filename = params[KEY_OUTPUT_NAME] if KEY_OUTPUT_NAME in params.keys() else DEFAULT_OUTPUT_NAME
+    out_filename = params[KEY_OUTPUT_NAME] if KEY_OUTPUT_NAME in params.keys() else DEFAULT_ARCHIVE_NAME
 
     file_list = parse_file_list(params)
 
@@ -93,17 +106,14 @@ def concat(params):
                 ofile.write(bytes(filename.encode()))
                 ofile.write(file_statistics.st_size.to_bytes(INT_LENGTH, 'big'))
 
-
-
                 with open(filename, 'rb+') as file_2_copy:
                     size = file_statistics.st_size
                     buf_size = 2048
 
                     while size > 0:
                         read_size = buf_size if size > buf_size else size
-                        ofile.write(file_2_copy.read(read_size))
+                        ofile.write(cifer.encrypt(file_2_copy.read(read_size)))
                         size -= read_size
-
 
             except Exception as e:
 
@@ -135,7 +145,7 @@ def get_file_data(file):
 def scatter(params):
     err_code = 0
 
-    filename = params[KEY_INPUT_FILE_NAME] if KEY_INPUT_FILE_NAME in params.keys() else DEFAULT_OUTPUT_NAME
+    filename = params[KEY_INPUT_FILE_NAME] if KEY_INPUT_FILE_NAME in params.keys() else DEFAULT_ARCHIVE_NAME
 
     try:
 
@@ -168,7 +178,7 @@ def scatter(params):
             while cur_filesize > 0:
                 buf_size = 2048
                 read_size = buf_size if cur_filesize > buf_size else cur_filesize
-                ofile.write(ifile.read(read_size))
+                ofile.write(cifer.decrypt(ifile.read(read_size)))
                 cur_filesize -= buf_size
 
             ofile.close()
@@ -184,66 +194,60 @@ def scatter(params):
     return err_code
 
 
-def help():
-    print(""" Hider v0.0b
+def man():
+    print("""
     Disclaimer: Developer doesn't take any responsibility for harm that this script may bring to your PC.
     This scrip does no guarantee the high level of information security or data compression.
 
     Script parameters:
 
         -p - password (key param)
-
-        -c - concat : operation mode (key param) concatenate files that enlisted in passing file
-        -s - scatter : operation mode (key param) unzip file
-
-        -l - list of files: list of files you want to concatenate used with -c operation mode, otherwise ignored.
-        -o - output name: specify output filename if used with -c operation mode, or drop folder if you want to specify
-        one
-
-        -f - input filename: specify archive filename, if you don't default filename is 'arch.tr5'
     """)
 
 
+def verssion():
+    print("Hider v0.0b")
+
+
 def main():
-    params = {}
+    operation, password, input_filename, output_filename = parse_params()
 
-    for arg in sys.argv[1:]:
-        pair = parse_param(arg)
+    operations = {"concat": concat, "scatter": scatter, "help": man, "version": verssion}
 
-        if pair is None:
-            print("parse params error")
-            return 1
+    if operation is None:
+        print("I don't know what to do.")
+        return 2
 
-        params[pair[0]] = pair[1]
+    operations[operation](password, input_filename, output_filename)
 
-    try:
-
-        is_concat = KEY_CONCAT_OPERATION in params.keys()
-        is_scatter = KEY_SCATTER_OPERATION in params.keys()
-        show_help = KEY_HELP_OPERATION in params.keys()
-
-        if show_help:
-            help()
-            return 0
-
-        if KEY_PASSWORD not in params.keys():
-            print("You didn't say magic word")
-            return 2
-
-        if (is_concat and is_scatter) or (not is_concat and not is_scatter):
-            print("I don't know what to do")
-            return 1
-
-        if is_concat:
-            return concat(params)
-        elif is_scatter:
-            return scatter(params)
-
-
-
-    except Exception as e:
-        print("error while merging: " + e.strerror)
-        return 1
+    # try:
+    #
+    #     is_concat = KEY_CONCAT_OPERATION in params.keys()
+    #     is_scatter = KEY_SCATTER_OPERATION in params.keys()
+    #     show_help = KEY_HELP_OPERATION in params.keys()
+    #
+    #     if show_help:
+    #         help()
+    #         return 0
+    #
+    #     if KEY_PASSWORD not in params.keys():
+    #         print("You didn't say magic word")
+    #         return 2
+    #
+    #     if (is_concat and is_scatter) or (not is_concat and not is_scatter):
+    #         print("I don't know what to do")
+    #         return 1
+    #
+    #     if is_concat:
+    #         return concat(params)
+    #     elif is_scatter:
+    #         return scatter(params)
+    #
+    #
+    #
+    # except Exception as e:
+    #     print("error while merging: " + e.strerror)
+    #     return 1
 
     return 0
 
