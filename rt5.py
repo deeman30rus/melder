@@ -184,7 +184,7 @@ def scatter(params):
     return err_code
 
 
-def help():
+def man():
     print(""" Hider v0.0b
     Disclaimer: Developer doesn't take any responsibility for harm that this script may bring to your PC.
     This scrip does no guarantee the high level of information security or data compression.
@@ -223,7 +223,7 @@ def main():
         show_help = KEY_HELP_OPERATION in params.keys()
 
         if show_help:
-            help()
+            man()
             return 0
 
         if KEY_PASSWORD not in params.keys():
@@ -238,7 +238,6 @@ def main():
             return concat(params)
         elif is_scatter:
             return scatter(params)
-
 
 
     except Exception as e:
