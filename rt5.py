@@ -1,10 +1,8 @@
-import os
-import struct
-import sys
 import hashlib
-
+import os
+import pickle
+import sys
 from os import listdir
-from os.path import isfile, join
 
 # -mconcat -oout -idir -ppasword
 
@@ -25,14 +23,11 @@ KEY_HELP_ACTION = "-h"
 KEY_VERSION = "-v"
 
 
-# def parse_file_list(params):
-#     if KEY_FILE_LIST not in params.keys():
-#         for filename in os.listdir():
-#             thisdir = os.path.dirname(os.path.abspath(__file__))
-#             return [f for f in listdir(thisdir) if f != "rt5.py" and isfile(join(thisdir, f))]
-#     else:
-#         with open(params[KEY_FILE_LIST]) as flist:
-#             return [file[:-1] for file in flist]
+def get_md5(value):
+    m = hashlib.md5()
+    m.update(bytes(value))
+    return m.digest()
+
 
 def parse_params():
     params = {}
@@ -45,7 +40,6 @@ def parse_params():
 
     if len(set(params.keys()).intersection((KEY_MODE, KEY_HELP_ACTION, KEY_VERSION))) != 1:
         raise Exception("Operation mismatch")
-
 
     if KEY_HELP_ACTION in params.keys():
         return "man", None, None, None
@@ -65,140 +59,62 @@ def parse_params():
 
 
 def get_files(input_filename):
+    if not os.path.isdir(input_filename):
+        return None
 
-    if os.path.isfile(input_filename):
-        return [input_filename]
-
-    if os.path.isdir(input_filename):
-        thisdir = os.path.dirname(os.path.abspath(__file__))
-        return [f for f in listdir(thisdir) if f != "rt5.py" and isfile(join(thisdir, f))]
-
-    return None
+    return listdir(input_filename)
 
 
-def concat(pasword, input_filename, output_filename):
+def concat(password, input_dir, output_filename):
+    files = get_files(input_dir)
 
-    err_code = 0
-
-    files = get_files(input_filename)
+    if len(files) == 0:
+        return 1
 
     with open(output_filename, 'wb+') as ofile:
+        pickle.dump(get_md5(password.encode()), ofile)
+        pickle.dump(len(files), ofile)
+
+        for filename in files:
+            filepath = os.path.join(input_dir, filename)
+            with open(filepath, 'rb+') as file_2_copy:
+                buf_size = 2048
+                size = os.stat(filepath).st_size
+
+                pickle.dump(size, ofile)
+                pickle.dump(filename, ofile)
+
+                while size > 0:
+                    read_size = buf_size if size > buf_size else size
+                    ofile.write(cifer.encrypt(file_2_copy.read(read_size), password))
+                    size -= read_size
+
+    return 0
 
 
-    # md5 = get_md5(params[KEY_PASSWORD].encode())
-    #
-    # # out_filename = params[KEY_OUTPUT_NAME] if KEY_OUTPUT_NAME in params.keys() else DEFAULT_ARCHIVE_NAME
-    #
-    # # file_list = parse_file_list(params)
-    #
-    # try:
-    #
-    #     ofile = open(out_filename, 'wb+')
-    #
-    #     # writing password
-    #     # length
-    #     ofile.write(len(md5).to_bytes(INT_LENGTH, 'big'))
-    #     ofile.write(bytearray(md5))
-    #
-    #     ofile.write(len(file_list).to_bytes(INT_LENGTH, 'big'))
-    #
-    #     for filename in file_list:
-    #
-    #         try:
-    #             file = open(filename, 'rb+')
-    #             file_statistics = os.stat(filename)
-    #
-    #             ofile.write(len(filename).to_bytes(INT_LENGTH, 'big'))
-    #             ofile.write(bytes(filename.encode()))
-    #             ofile.write(file_statistics.st_size.to_bytes(INT_LENGTH, 'big'))
-    #
-    #             with open(filename, 'rb+') as file_2_copy:
-    #                 size = file_statistics.st_size
-    #                 buf_size = 2048
-    #
-    #                 while size > 0:
-    #                     read_size = buf_size if size > buf_size else size
-    #                     ofile.write(cifer.encrypt(file_2_copy.read(read_size)))
-    #                     size -= read_size
-    #
-    #         except Exception as e:
-    #
-    #             err_code = 3
-    #         finally:
-    #             file.close()
-    #
-    #     ofile.close()
-    #
-    # except Exception as e:
-    #
-    #     print("error while writing file: " + e.strerror)
-    #     err_code = 3
-    # finally:
-    #     ofile.close()
+def scatter(password, input_filename, output_dir):
+    with open(input_filename, 'rb') as ifile:
+        pswd = pickle.load(ifile)
+        files_amount = pickle.load(ifile)
 
-    return err_code
+        if pswd != get_md5(password.encode()):
+            return 1
 
+        if not os.path.exists(output_dir):
+            os.mkdir(output_dir)
 
-def get_file_data(file):
-    name_size = struct.unpack('>I', file.read(INT_LENGTH))[0]
-    filename = struct.unpack('%ds' % name_size, file.read(name_size))[0].decode('utf-8')
+        for i in range(files_amount):
+            size = pickle.load(ifile)
+            filename = os.path.join(output_dir, pickle.load(ifile))
 
-    filesize = struct.unpack('>I', file.read(INT_LENGTH))[0]
+            with open(filename, 'wb+') as file:
+                buf_size = 2048
+                while size > 0:
+                    read_size = buf_size if size > buf_size else size
+                    file.write(cifer.decrypt(ifile.read(read_size), password))
+                    size -= read_size
 
-    return filename, filesize
-
-
-def scatter(pasword, intput_filename, output_filename):
-
-    err_code = 0
-
-    # filename = params[KEY_INPUT_FILE_NAME] if KEY_INPUT_FILE_NAME in params.keys() else DEFAULT_ARCHIVE_NAME
-    #
-    # try:
-    #
-    #     ifile = open(filename, 'rb+')
-    #
-    #     buf = ifile.read(INT_LENGTH)  # md5 length read
-    #     md5len = struct.unpack('>L', buf)[0]
-    #
-    #     buf = ifile.read(md5len)  # reading md5
-    #     md5 = struct.unpack('%ds' % md5len, buf)[0]
-    #
-    #     if md5 != get_md5(params[KEY_PASSWORD].encode()):
-    #         ifile.close()
-    #         print("wrong password")
-    #         return 4
-    #
-    #     buf = ifile.read(INT_LENGTH)
-    #     files_amount = struct.unpack('>L', buf)[0]
-    #
-    #     containing_dir = os.path.join(os.getcwd(), params[KEY_OUTPUT_NAME] if KEY_OUTPUT_NAME in params.keys() else "")
-    #
-    #     for x in range(0, files_amount):
-    #         cur_filename, cur_filesize = get_file_data(ifile)
-    #
-    #         if not os.path.exists(containing_dir):
-    #             os.makedirs(containing_dir)
-    #
-    #         ofile = open(os.path.join(containing_dir, cur_filename), "wb+")
-    #
-    #         while cur_filesize > 0:
-    #             buf_size = 2048
-    #             read_size = buf_size if cur_filesize > buf_size else cur_filesize
-    #             ofile.write(cifer.decrypt(ifile.read(read_size)))
-    #             cur_filesize -= buf_size
-    #
-    #         ofile.close()
-    #
-    #     ifile.close()
-    #
-    # except Exception as e:
-    #     print("Error while reading: " + e.strerror)
-    #     err_code = 3
-    # finally:
-    #     ifile.close()
-
-    return err_code
+    return 0
 
 
 def man():
@@ -212,7 +128,7 @@ def man():
     """)
 
 
-def verssion():
+def version():
     print("Hider v0.5b")
 
 
@@ -222,7 +138,7 @@ def main():
     if operation == "man":
         man()
     elif operation == "version":
-        verssion()
+        version()
     elif operation == "concat":
 
         if input_file is None:
